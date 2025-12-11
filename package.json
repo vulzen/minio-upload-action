@@ -1,0 +1,27 @@
+{
+  "name": "minio-upload-action",
+  "version": "1.0.0",
+  "description": "GitHub Action for uploading artifacts to MinIO",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "ncc build src/index.js -o dist --source-map --license licenses.txt",
+    "test": "jest"
+  },
+  "keywords": [
+    "github-action",
+    "minio",
+    "upload",
+    "artifact",
+    "s3"
+  ],
+  "author": "redfox",
+  "license": "MIT",
+  "dependencies": {
+    "@actions/core": "^1.10.1",
+    "@actions/glob": "^0.4.0",
+    "minio": "^7.1.3"
+  },
+  "devDependencies": {
+    "@vercel/ncc": "^0.38.1"
+  }
+}

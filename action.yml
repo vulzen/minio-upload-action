@@ -1,0 +1,48 @@
+name: 'MinIO Upload'
+description: 'Upload artifacts to MinIO object storage'
+author: 'redfox'
+
+inputs:
+  endpoint:
+    description: 'MinIO endpoint URL (e.g., play.min.io:9000)'
+    required: true
+  access-key:
+    description: 'MinIO access key'
+    required: true
+  secret-key:
+    description: 'MinIO secret key'
+    required: true
+  bucket:
+    description: 'Target bucket name'
+    required: true
+  source:
+    description: 'Source file or directory path to upload'
+    required: true
+  target:
+    description: 'Target path in bucket (optional, defaults to source filename)'
+    required: false
+    default: ''
+  use-ssl:
+    description: 'Use SSL/TLS for connection'
+    required: false
+    default: 'true'
+  region:
+    description: 'MinIO region (optional)'
+    required: false
+    default: 'us-east-1'
+
+outputs:
+  uploaded-path:
+    description: 'The full path where the file was uploaded'
+    value: ${{ steps.upload.outputs.path }}
+  etag:
+    description: 'ETag of the uploaded object'
+    value: ${{ steps.upload.outputs.etag }}
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'
+
+branding:
+  icon: 'upload-cloud'
+  color: 'red'
