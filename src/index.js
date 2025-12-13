@@ -49,8 +49,20 @@ async function run() {
     const accessKey = core.getInput('access-key', { required: true });
     const secretKey = core.getInput('secret-key', { required: true });
     const bucket = core.getInput('bucket', { required: true });
-    const source = core.getInput('source', { required: true });
+    const sourceInput = core.getInput('source', { required: true });
     const target = core.getInput('target') || '';
+    
+    // Parse multiple sources (newline-separated)
+    const sources = sourceInput
+      .split('\n')
+      .map(s => s.trim())
+      .filter(s => s.length > 0);
+    
+    if (sources.length === 0) {
+      throw new Error('At least one source path must be provided');
+    }
+    
+    core.info(`Found ${sources.length} source(s) to upload`);
     const useSSL = core.getInput('use-ssl') === 'true';
     const region = core.getInput('region') || 'us-east-1';
 
@@ -77,39 +89,43 @@ async function run() {
       await minioClient.makeBucket(bucket, region);
     }
 
-    // Check if source exists
-    if (!fs.existsSync(source)) {
-      throw new Error(`Source path does not exist: ${source}`);
-    }
+    // Process all sources and collect results
+    const allResults = [];
+    
+    for (const source of sources) {
+      // Check if source exists
+      if (!fs.existsSync(source)) {
+        throw new Error(`Source path does not exist: ${source}`);
+      }
 
-    const stats = fs.statSync(source);
-    let uploadedPath = '';
-    let etag = '';
+      const stats = fs.statSync(source);
 
-    if (stats.isFile()) {
-      // Upload single file
-      const targetPath = target || path.basename(source);
-      const result = await uploadFile(minioClient, bucket, source, targetPath);
-      uploadedPath = result.path;
-      etag = result.etag;
-      
-      core.info(`✓ Successfully uploaded to ${uploadedPath}`);
-    } else if (stats.isDirectory()) {
-      // Upload directory
-      const targetPrefix = target || path.basename(source);
-      const results = await uploadDirectory(minioClient, bucket, source, targetPrefix);
-      
-      uploadedPath = `${bucket}/${targetPrefix}`;
-      etag = results.length > 0 ? results[0].etag : '';
-      
-      core.info(`✓ Successfully uploaded ${results.length} files to ${uploadedPath}`);
-    } else {
-      throw new Error(`Source is neither a file nor a directory: ${source}`);
+      if (stats.isFile()) {
+        // Upload single file
+        const targetPath = target 
+          ? `${target}/${path.basename(source)}`.replace(/\/+/g, '/')
+          : path.basename(source);
+        const result = await uploadFile(minioClient, bucket, source, targetPath);
+        allResults.push(result);
+        
+        core.info(`✓ Successfully uploaded to ${result.path}`);
+      } else if (stats.isDirectory()) {
+        // Upload directory
+        const results = await uploadDirectory(minioClient, bucket, source, target);
+        allResults.push(...results);
+        
+        core.info(`✓ Successfully uploaded ${results.length} files from ${source}`);
+      } else {
+        throw new Error(`Source is neither a file nor a directory: ${source}`);
+      }
     }
 
     // Set outputs
-    core.setOutput('uploaded-path', uploadedPath);
-    core.setOutput('etag', etag);
+    core.setOutput('uploads', JSON.stringify(allResults));
+    core.setOutput('uploaded-count', allResults.length);
+    core.setOutput('uploaded-paths', allResults.map(r => r.path).join('\n'));
+    
+    core.info(`\n🎉 Total: ${allResults.length} file(s) uploaded successfully`);
 
   } catch (error) {
     core.setFailed(`Action failed: ${error.message}`);

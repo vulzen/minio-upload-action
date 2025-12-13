@@ -16,10 +16,10 @@ inputs:
     description: 'Target bucket name'
     required: true
   source:
-    description: 'Source file or directory path to upload'
+    description: 'Source file or directory path to upload. Supports multiple sources using YAML multiline syntax (one path per line)'
     required: true
   target:
-    description: 'Target path in bucket (optional, defaults to source filename)'
+    description: 'Target path prefix in bucket where all sources will be uploaded (optional)'
     required: false
     default: ''
   use-ssl:
@@ -32,12 +32,15 @@ inputs:
     default: 'us-east-1'
 
 outputs:
-  uploaded-path:
-    description: 'The full path where the file was uploaded'
-    value: ${{ steps.upload.outputs.path }}
-  etag:
-    description: 'ETag of the uploaded object'
-    value: ${{ steps.upload.outputs.etag }}
+  uploads:
+    description: 'JSON array of all uploaded files with their paths and ETags'
+    value: ${{ steps.upload.outputs.uploads }}
+  uploaded-count:
+    description: 'Total number of files uploaded'
+    value: ${{ steps.upload.outputs.uploaded-count }}
+  uploaded-paths:
+    description: 'Newline-separated list of all uploaded file paths'
+    value: ${{ steps.upload.outputs.uploaded-paths }}
 
 runs:
   using: 'node20'

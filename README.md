@@ -6,10 +6,12 @@ A platform-agnostic GitHub Action for uploading artifacts to MinIO object storag
 
 - ✅ Platform agnostic (works on Linux, macOS, and Windows runners)
 - ✅ Upload single files or entire directories
+- ✅ **Multiple sources support** - upload multiple files/directories in one action
+- ✅ **Glob pattern support** - use wildcards like `*.jar` or `**/*.js`
 - ✅ Automatic bucket creation if it doesn't exist
 - ✅ SSL/TLS support
 - ✅ Custom target paths
-- ✅ Returns uploaded path and ETag as outputs
+- ✅ Detailed outputs with all uploaded files, paths, and counts
 
 ## Usage
 
@@ -17,7 +19,7 @@ A platform-agnostic GitHub Action for uploading artifacts to MinIO object storag
 
 ```yaml
 - name: Upload to MinIO
-  uses: redfoxrr/minio-upload-action@v1
+  uses: redfoxrr/minio-upload-action@v2
   with:
     endpoint: 'play.min.io:9000'
     access-key: ${{ secrets.MINIO_ACCESS_KEY }}
@@ -26,11 +28,45 @@ A platform-agnostic GitHub Action for uploading artifacts to MinIO object storag
     source: './build/artifact.zip'
 ```
 
+### Upload Multiple Sources
+
+```yaml
+- name: Upload multiple files
+  uses: redfoxrr/minio-upload-action@v2
+  with:
+    endpoint: 'play.min.io:9000'
+    access-key: ${{ secrets.MINIO_ACCESS_KEY }}
+    secret-key: ${{ secrets.MINIO_SECRET_KEY }}
+    bucket: 'my-bucket'
+    target: 'releases/v1.0'
+    source: |
+      dist/
+      README.md
+      LICENSE
+```
+
+### Upload with Glob Patterns
+
+```yaml
+- name: Upload JAR files
+  uses: redfoxrr/minio-upload-action@v2
+  with:
+    endpoint: 'minio.example.com'
+    access-key: ${{ secrets.MINIO_ACCESS_KEY }}
+    secret-key: ${{ secrets.MINIO_SECRET_KEY }}
+    bucket: 'artifacts'
+    target: 'libs'
+    source: |
+      paper/libs/*.jar
+      **/*.so
+      dist/**/*.{js,map}
+```
+
 ### Upload Directory
 
 ```yaml
 - name: Upload build directory
-  uses: redfoxrr/minio-upload-action@v1
+  uses: redfoxrr/minio-upload-action@v2
   with:
     endpoint: 'minio.example.com'
     access-key: ${{ secrets.MINIO_ACCESS_KEY }}
@@ -64,7 +100,7 @@ jobs:
     
     - name: Upload to MinIO
       id: upload
-      uses: redfoxrr/minio-upload-action@v1
+      uses: redfoxrr/minio-upload-action@v2
       with:
         endpoint: ${{ secrets.MINIO_ENDPOINT }}
         access-key: ${{ secrets.MINIO_ACCESS_KEY }}
@@ -75,8 +111,9 @@ jobs:
     
     - name: Print upload result
       run: |
-        echo "Uploaded to: ${{ steps.upload.outputs.uploaded-path }}"
-        echo "ETag: ${{ steps.upload.outputs.etag }}"
+        echo "Uploaded ${{ steps.upload.outputs.uploaded-count }} file(s)"
+        echo "Paths:"
+        echo "${{ steps.upload.outputs.uploaded-paths }}"
 ```
 
 ## Inputs
@@ -87,8 +124,8 @@ jobs:
 | `access-key` | MinIO access key | Yes | - |
 | `secret-key` | MinIO secret key | Yes | - |
 | `bucket` | Target bucket name | Yes | - |
-| `source` | Source file or directory path to upload | Yes | - |
-| `target` | Target path in bucket (defaults to source filename) | No | `''` |
+| `source` | Source file(s) or directory path(s) to upload. Supports multiple sources using YAML multiline syntax (one path per line). Supports glob patterns. | Yes | - |
+| `target` | Target path prefix in bucket where all sources will be uploaded | No | `''` |
 | `use-ssl` | Use SSL/TLS for connection | No | `true` |
 | `region` | MinIO region | No | `us-east-1` |
 
@@ -96,8 +133,32 @@ jobs:
 
 | Output | Description |
 |--------|-------------|
-| `uploaded-path` | The full path where the file was uploaded (e.g., `bucket/path/to/file`) |
-| `etag` | ETag of the uploaded object |
+| `uploads` | JSON array of all uploaded files with their paths and ETags |
+| `uploaded-count` | Total number of files uploaded |
+| `uploaded-paths` | Newline-separated list of all uploaded file paths |
+
+### Using Outputs
+
+```yaml
+- name: Upload files
+  id: upload
+  uses: redfoxrr/minio-upload-action@v2
+  with:
+    endpoint: ${{ secrets.MINIO_ENDPOINT }}
+    access-key: ${{ secrets.MINIO_ACCESS_KEY }}
+    secret-key: ${{ secrets.MINIO_SECRET_KEY }}
+    bucket: 'my-bucket'
+    source: |
+      dist/
+      README.md
+
+- name: Use outputs
+  run: |
+    echo "Total files: ${{ steps.upload.outputs.uploaded-count }}"
+    echo "All paths:"
+    echo "${{ steps.upload.outputs.uploaded-paths }}"
+    echo "Detailed info: ${{ steps.upload.outputs.uploads }}"
+```
 
 ## Secrets Configuration
 
