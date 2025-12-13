@@ -93,30 +93,40 @@ async function run() {
     const allResults = [];
     
     for (const source of sources) {
-      // Check if source exists
-      if (!fs.existsSync(source)) {
-        throw new Error(`Source path does not exist: ${source}`);
+      core.info(`Processing source: ${source}`);
+      
+      // Use glob to expand patterns
+      const globber = await glob.create(source, {
+        followSymbolicLinks: false
+      });
+      
+      const matchedFiles = await globber.glob();
+      
+      if (matchedFiles.length === 0) {
+        throw new Error(`Source path does not exist or no files match pattern: ${source}`);
       }
+      
+      core.info(`Found ${matchedFiles.length} file(s) matching pattern`);
 
-      const stats = fs.statSync(source);
+      for (const matchedPath of matchedFiles) {
+        const stats = fs.statSync(matchedPath);
 
-      if (stats.isFile()) {
-        // Upload single file
-        const targetPath = target 
-          ? `${target}/${path.basename(source)}`.replace(/\/+/g, '/')
-          : path.basename(source);
-        const result = await uploadFile(minioClient, bucket, source, targetPath);
-        allResults.push(result);
-        
-        core.info(`✓ Successfully uploaded to ${result.path}`);
-      } else if (stats.isDirectory()) {
-        // Upload directory
-        const results = await uploadDirectory(minioClient, bucket, source, target);
-        allResults.push(...results);
-        
-        core.info(`✓ Successfully uploaded ${results.length} files from ${source}`);
-      } else {
-        throw new Error(`Source is neither a file nor a directory: ${source}`);
+        if (stats.isFile()) {
+          // Upload single file
+          const targetPath = target 
+            ? `${target}/${path.basename(matchedPath)}`.replace(/\/+/g, '/')
+            : path.basename(matchedPath);
+          const result = await uploadFile(minioClient, bucket, matchedPath, targetPath);
+          allResults.push(result);
+          
+          core.info(`✓ Successfully uploaded to ${result.path}`);
+        } else if (stats.isDirectory()) {
+          // Upload directory
+          const results = await uploadDirectory(minioClient, bucket, matchedPath, target);
+          allResults.push(...results);
+          
+          core.info(`✓ Successfully uploaded ${results.length} files from ${matchedPath}`);
+        }
       }
     }
 
