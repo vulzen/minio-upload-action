@@ -26,6 +26,10 @@ inputs:
     description: 'Use SSL/TLS for connection'
     required: false
     default: 'true'
+  flatten:
+    description: 'Upload every matched file to target/<basename> instead of preserving its directory structure. Off by default.'
+    required: false
+    default: 'false'
   region:
     description: 'MinIO region (optional)'
     required: false

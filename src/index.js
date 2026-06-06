@@ -1,46 +1,9 @@
 const core = require('@actions/core');
-const glob = require('@actions/glob');
 const Minio = require('minio');
-const fs = require('fs');
-const path = require('path');
-
-async function uploadFile(minioClient, bucket, filePath, targetPath) {
-  const fileStream = fs.createReadStream(filePath);
-  const stats = fs.statSync(filePath);
-  
-  core.info(`Uploading ${filePath} to ${bucket}/${targetPath} (${stats.size} bytes)`);
-  
-  const result = await minioClient.putObject(bucket, targetPath, fileStream, stats.size);
-  
-  return {
-    etag: result.etag,
-    path: `${bucket}/${targetPath}`
-  };
-}
-
-async function uploadDirectory(minioClient, bucket, dirPath, targetPrefix) {
-  const globber = await glob.create(`${dirPath}/**/*`, {
-    followSymbolicLinks: false
-  });
-  
-  const files = await globber.glob();
-  const uploadedFiles = [];
-  
-  for (const file of files) {
-    const stats = fs.statSync(file);
-    if (stats.isFile()) {
-      const relativePath = path.relative(dirPath, file);
-      const targetPath = targetPrefix 
-        ? `${targetPrefix}/${relativePath}`.replace(/\\/g, '/')
-        : relativePath.replace(/\\/g, '/');
-      
-      const result = await uploadFile(minioClient, bucket, file, targetPath);
-      uploadedFiles.push(result);
-    }
-  }
-  
-  return uploadedFiles;
-}
+const { parseEndpoint, parseSources } = require('./inputs');
+const { planUploads } = require('./plan');
+const { findCollisions } = require('./keys');
+const { ensureBucket, uploadFile } = require('./upload');
 
 async function run() {
   try {
@@ -51,92 +14,62 @@ async function run() {
     const bucket = core.getInput('bucket', { required: true });
     const sourceInput = core.getInput('source', { required: true });
     const target = core.getInput('target') || '';
-    
-    // Parse multiple sources (newline-separated)
-    const sources = sourceInput
-      .split('\n')
-      .map(s => s.trim())
-      .filter(s => s.length > 0);
-    
+    const region = core.getInput('region') || 'us-east-1';
+    // use-ssl defaults to true; flatten defaults to false (preserve structure).
+    const useSSLInput = core.getInput('use-ssl') !== 'false';
+    const flatten = core.getInput('flatten') === 'true';
+
+    const sources = parseSources(sourceInput);
     if (sources.length === 0) {
       throw new Error('At least one source path must be provided');
     }
-    
     core.info(`Found ${sources.length} source(s) to upload`);
-    const useSSL = core.getInput('use-ssl') === 'true';
-    const region = core.getInput('region') || 'us-east-1';
 
-    // Parse endpoint (remove protocol if included)
-    const endpointClean = endpoint.replace(/^https?:\/\//, '');
-    const [endpointHost, endpointPort] = endpointClean.split(':');
-    
-    core.info(`Connecting to MinIO at ${endpointHost}${endpointPort ? ':' + endpointPort : ''}`);
-    
+    const { host, port, useSSL } = parseEndpoint(endpoint, useSSLInput);
+    core.info(`Connecting to MinIO at ${host}:${port} (SSL: ${useSSL})`);
+
     // Initialize MinIO client
     const minioClient = new Minio.Client({
-      endPoint: endpointHost,
-      port: endpointPort ? parseInt(endpointPort) : (useSSL ? 443 : 9000),
-      useSSL: useSSL,
-      accessKey: accessKey,
-      secretKey: secretKey,
-      region: region
+      endPoint: host,
+      port,
+      useSSL,
+      accessKey,
+      secretKey,
+      region,
     });
 
-    // Check if bucket exists, create if not
-    const bucketExists = await minioClient.bucketExists(bucket);
-    if (!bucketExists) {
-      core.info(`Bucket ${bucket} does not exist, creating...`);
-      await minioClient.makeBucket(bucket, region);
+    // Plan all uploads before touching the bucket, so a missing source or a
+    // key collision fails fast without leaving a half-written bucket behind.
+    const tasks = await planUploads(sources, target, flatten, core.info);
+
+    const collisions = findCollisions(tasks);
+    if (collisions.length > 0) {
+      const detail = collisions
+        .map((c) => `  ${c.objectKey} <- ${c.sources.join(', ')}`)
+        .join('\n');
+      throw new Error(
+        'Multiple files map to the same object key and would overwrite each other. ' +
+          'Set "flatten: false" to preserve directory structure, or adjust the sources.\n' +
+          detail
+      );
     }
 
-    // Process all sources and collect results
+    // Check if bucket exists, create if not
+    await ensureBucket(minioClient, bucket, region, core.info);
+
     const allResults = [];
-    
-    for (const source of sources) {
-      core.info(`Processing source: ${source}`);
-      
-      // Use glob to expand patterns
-      const globber = await glob.create(source, {
-        followSymbolicLinks: false
-      });
-      
-      const matchedFiles = await globber.glob();
-      
-      if (matchedFiles.length === 0) {
-        throw new Error(`Source path does not exist or no files match pattern: ${source}`);
-      }
-      
-      core.info(`Found ${matchedFiles.length} file(s) matching pattern`);
-
-      for (const matchedPath of matchedFiles) {
-        const stats = fs.statSync(matchedPath);
-
-        if (stats.isFile()) {
-          // Upload single file
-          const targetPath = target 
-            ? `${target}/${path.basename(matchedPath)}`.replace(/\/+/g, '/')
-            : path.basename(matchedPath);
-          const result = await uploadFile(minioClient, bucket, matchedPath, targetPath);
-          allResults.push(result);
-          
-          core.info(`✓ Successfully uploaded to ${result.path}`);
-        } else if (stats.isDirectory()) {
-          // Upload directory
-          const results = await uploadDirectory(minioClient, bucket, matchedPath, target);
-          allResults.push(...results);
-          
-          core.info(`✓ Successfully uploaded ${results.length} files from ${matchedPath}`);
-        }
-      }
+    for (const task of tasks) {
+      const result = await uploadFile(minioClient, bucket, task.localPath, task.objectKey, core.info);
+      allResults.push(result);
+      core.info(`✓ Successfully uploaded to ${result.path}`);
     }
 
     // Set outputs
     core.setOutput('uploads', JSON.stringify(allResults));
     core.setOutput('uploaded-count', allResults.length);
-    core.setOutput('uploaded-paths', allResults.map(r => r.path).join('\n'));
-    
-    core.info(`\n🎉 Total: ${allResults.length} file(s) uploaded successfully`);
+    core.setOutput('uploaded-paths', allResults.map((r) => r.path).join('\n'));
 
+    core.info(`\n🎉 Total: ${allResults.length} file(s) uploaded successfully`);
   } catch (error) {
     core.setFailed(`Action failed: ${error.message}`);
   }

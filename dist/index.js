@@ -73326,6 +73326,226 @@ module.exports.element = module.exports.Element = element;
 
 /***/ }),
 
+/***/ 1700:
+/***/ ((module) => {
+
+// Parse a MinIO/S3 endpoint string into { host, port, useSSL }.
+//
+// Accepts an optional http(s):// prefix (which, when present, determines
+// useSSL), an optional :port, IPv6 in [brackets], and ignores any trailing
+// path/query/fragment. When no port is given it defaults to 443 (SSL) or 9000.
+function parseEndpoint(endpoint, useSSLDefault) {
+  let useSSL = useSSLDefault;
+  let rest = String(endpoint).trim();
+
+  const proto = rest.match(/^(https?):\/\//i);
+  if (proto) {
+    useSSL = proto[1].toLowerCase() === 'https';
+    rest = rest.slice(proto[0].length);
+  }
+
+  // Drop anything after the authority (path, query, fragment).
+  rest = rest.replace(/[/?#].*$/, '');
+
+  let host = rest;
+  let port;
+
+  const bracketed = rest.match(/^\[([^\]]+)\](?::(\d+))?$/);
+  if (bracketed) {
+    // IPv6 literal, optionally with a port.
+    host = bracketed[1];
+    if (bracketed[2]) port = parseInt(bracketed[2], 10);
+  } else if (rest.indexOf(':') !== -1 && rest.indexOf(':') === rest.lastIndexOf(':')) {
+    // Exactly one colon -> host:port. (Bare IPv6 with multiple colons is left
+    // intact as the host and uses the default port.)
+    const idx = rest.lastIndexOf(':');
+    host = rest.slice(0, idx);
+    const portStr = rest.slice(idx + 1);
+    if (portStr) port = parseInt(portStr, 10);
+  }
+
+  if (port === undefined || Number.isNaN(port)) {
+    port = useSSL ? 443 : 9000;
+  }
+
+  return { host, port, useSSL };
+}
+
+// Split the multiline `source` input into a trimmed, non-empty list of paths.
+function parseSources(sourceInput) {
+  return String(sourceInput)
+    .split('\n')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+module.exports = { parseEndpoint, parseSources };
+
+
+/***/ }),
+
+/***/ 6673:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+const path = __nccwpck_require__(6928);
+
+// Characters that make a path segment a glob pattern rather than a literal.
+const MAGIC = /[*?[\]{}]/;
+
+// Normalize a filesystem path into a valid S3/MinIO object key:
+// backslashes -> forward slashes, collapse duplicate slashes, strip leading slash.
+function toObjectKey(p) {
+  return p
+    .replace(/\\/g, '/')
+    .replace(/\/+/g, '/')
+    .replace(/^\//, '');
+}
+
+// Return the literal (non-magic) leading portion of a glob pattern.
+// e.g. 'build/**/*.js' -> 'build', 'dist/' -> 'dist', 'foo/bar.txt' -> 'foo/bar.txt'.
+function literalPrefix(pattern) {
+  const segments = pattern.split('/');
+  const literal = [];
+  for (const segment of segments) {
+    if (MAGIC.test(segment)) break;
+    literal.push(segment);
+  }
+  return literal.join('/');
+}
+
+// Compute the object key for a matched (absolute) file.
+//  - flatten=true  -> key is just the basename under the target prefix
+//  - flatten=false -> key preserves the path relative to `base` under the target prefix
+function computeObjectKey(absFile, base, target, flatten) {
+  const rel = flatten ? path.basename(absFile) : path.relative(base, absFile);
+  return toObjectKey(target ? `${target}/${rel}` : rel);
+}
+
+// Given a list of { localPath, objectKey }, find keys that more than one
+// distinct local file maps to (i.e. an upload would silently overwrite another).
+function findCollisions(tasks) {
+  const byKey = new Map();
+  for (const task of tasks) {
+    if (!byKey.has(task.objectKey)) {
+      byKey.set(task.objectKey, new Set());
+    }
+    byKey.get(task.objectKey).add(task.localPath);
+  }
+
+  const collisions = [];
+  for (const [objectKey, sources] of byKey) {
+    if (sources.size > 1) {
+      collisions.push({ objectKey, sources: [...sources] });
+    }
+  }
+  return collisions;
+}
+
+module.exports = { toObjectKey, literalPrefix, computeObjectKey, findCollisions };
+
+
+/***/ }),
+
+/***/ 8194:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+const fs = __nccwpck_require__(9896);
+const path = __nccwpck_require__(6928);
+const glob = __nccwpck_require__(7206);
+const { literalPrefix, computeObjectKey } = __nccwpck_require__(6673);
+
+// Determine the base directory that a source's relative paths are computed
+// against. For a directory source it is the directory itself; for a glob it is
+// the literal prefix directory; for a single file it is the file's directory.
+function resolveBase(source) {
+  const prefix = literalPrefix(source);
+  const abs = path.resolve(prefix || '.');
+  try {
+    if (fs.statSync(abs).isDirectory()) {
+      return abs;
+    }
+  } catch {
+    // The literal prefix isn't a real path on its own (pure glob); fall back.
+  }
+  return path.dirname(abs);
+}
+
+// Expand every source into a flat list of upload tasks { localPath, objectKey }.
+// Globs and directories are both expanded to their descendant files (directory
+// entries themselves are skipped). Throws if any source matches no files, so a
+// bad input fails before anything is uploaded.
+async function planUploads(sources, target, flatten, log) {
+  const tasks = [];
+
+  for (const source of sources) {
+    log(`Processing source: ${source}`);
+
+    const globber = await glob.create(source, { followSymbolicLinks: false });
+    const matches = await globber.glob();
+    const base = resolveBase(source);
+
+    let fileCount = 0;
+    for (const match of matches) {
+      if (!fs.statSync(match).isFile()) {
+        continue;
+      }
+      tasks.push({
+        localPath: match,
+        objectKey: computeObjectKey(match, base, target, flatten),
+      });
+      fileCount++;
+    }
+
+    if (fileCount === 0) {
+      throw new Error(`Source path does not exist or no files match pattern: ${source}`);
+    }
+    log(`Found ${fileCount} file(s) for ${source}`);
+  }
+
+  return tasks;
+}
+
+module.exports = { resolveBase, planUploads };
+
+
+/***/ }),
+
+/***/ 7108:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+const fs = __nccwpck_require__(9896);
+const mime = __nccwpck_require__(4096);
+
+// Create the bucket if it does not already exist.
+async function ensureBucket(minioClient, bucket, region, log) {
+  const exists = await minioClient.bucketExists(bucket);
+  if (!exists) {
+    log(`Bucket ${bucket} does not exist, creating...`);
+    await minioClient.makeBucket(bucket, region);
+  }
+}
+
+// Upload a single local file to bucket/objectKey, inferring its Content-Type
+// from the file extension. Returns { etag, path }.
+async function uploadFile(minioClient, bucket, localPath, objectKey, log) {
+  const stats = fs.statSync(localPath);
+  const stream = fs.createReadStream(localPath);
+  const contentType = mime.lookup(localPath) || 'application/octet-stream';
+
+  log(`Uploading ${localPath} -> ${bucket}/${objectKey} (${stats.size} bytes, ${contentType})`);
+
+  const result = await minioClient.putObject(bucket, objectKey, stream, stats.size, {
+    'Content-Type': contentType,
+  });
+
+  return { etag: result.etag, path: `${bucket}/${objectKey}` };
+}
+
+module.exports = { ensureBucket, uploadFile };
+
+
+/***/ }),
+
 /***/ 2613:
 /***/ ((module) => {
 
@@ -75259,48 +75479,11 @@ module.exports = /*#__PURE__*/JSON.parse('{"application/1d-interleaved-parityfec
 /************************************************************************/
 var __webpack_exports__ = {};
 const core = __nccwpck_require__(7484);
-const glob = __nccwpck_require__(7206);
 const Minio = __nccwpck_require__(2615);
-const fs = __nccwpck_require__(9896);
-const path = __nccwpck_require__(6928);
-
-async function uploadFile(minioClient, bucket, filePath, targetPath) {
-  const fileStream = fs.createReadStream(filePath);
-  const stats = fs.statSync(filePath);
-  
-  core.info(`Uploading ${filePath} to ${bucket}/${targetPath} (${stats.size} bytes)`);
-  
-  const result = await minioClient.putObject(bucket, targetPath, fileStream, stats.size);
-  
-  return {
-    etag: result.etag,
-    path: `${bucket}/${targetPath}`
-  };
-}
-
-async function uploadDirectory(minioClient, bucket, dirPath, targetPrefix) {
-  const globber = await glob.create(`${dirPath}/**/*`, {
-    followSymbolicLinks: false
-  });
-  
-  const files = await globber.glob();
-  const uploadedFiles = [];
-  
-  for (const file of files) {
-    const stats = fs.statSync(file);
-    if (stats.isFile()) {
-      const relativePath = path.relative(dirPath, file);
-      const targetPath = targetPrefix 
-        ? `${targetPrefix}/${relativePath}`.replace(/\\/g, '/')
-        : relativePath.replace(/\\/g, '/');
-      
-      const result = await uploadFile(minioClient, bucket, file, targetPath);
-      uploadedFiles.push(result);
-    }
-  }
-  
-  return uploadedFiles;
-}
+const { parseEndpoint, parseSources } = __nccwpck_require__(1700);
+const { planUploads } = __nccwpck_require__(8194);
+const { findCollisions } = __nccwpck_require__(6673);
+const { ensureBucket, uploadFile } = __nccwpck_require__(7108);
 
 async function run() {
   try {
@@ -75311,92 +75494,62 @@ async function run() {
     const bucket = core.getInput('bucket', { required: true });
     const sourceInput = core.getInput('source', { required: true });
     const target = core.getInput('target') || '';
-    
-    // Parse multiple sources (newline-separated)
-    const sources = sourceInput
-      .split('\n')
-      .map(s => s.trim())
-      .filter(s => s.length > 0);
-    
+    const region = core.getInput('region') || 'us-east-1';
+    // use-ssl defaults to true; flatten defaults to false (preserve structure).
+    const useSSLInput = core.getInput('use-ssl') !== 'false';
+    const flatten = core.getInput('flatten') === 'true';
+
+    const sources = parseSources(sourceInput);
     if (sources.length === 0) {
       throw new Error('At least one source path must be provided');
     }
-    
     core.info(`Found ${sources.length} source(s) to upload`);
-    const useSSL = core.getInput('use-ssl') === 'true';
-    const region = core.getInput('region') || 'us-east-1';
 
-    // Parse endpoint (remove protocol if included)
-    const endpointClean = endpoint.replace(/^https?:\/\//, '');
-    const [endpointHost, endpointPort] = endpointClean.split(':');
-    
-    core.info(`Connecting to MinIO at ${endpointHost}${endpointPort ? ':' + endpointPort : ''}`);
-    
+    const { host, port, useSSL } = parseEndpoint(endpoint, useSSLInput);
+    core.info(`Connecting to MinIO at ${host}:${port} (SSL: ${useSSL})`);
+
     // Initialize MinIO client
     const minioClient = new Minio.Client({
-      endPoint: endpointHost,
-      port: endpointPort ? parseInt(endpointPort) : (useSSL ? 443 : 9000),
-      useSSL: useSSL,
-      accessKey: accessKey,
-      secretKey: secretKey,
-      region: region
+      endPoint: host,
+      port,
+      useSSL,
+      accessKey,
+      secretKey,
+      region,
     });
 
-    // Check if bucket exists, create if not
-    const bucketExists = await minioClient.bucketExists(bucket);
-    if (!bucketExists) {
-      core.info(`Bucket ${bucket} does not exist, creating...`);
-      await minioClient.makeBucket(bucket, region);
+    // Plan all uploads before touching the bucket, so a missing source or a
+    // key collision fails fast without leaving a half-written bucket behind.
+    const tasks = await planUploads(sources, target, flatten, core.info);
+
+    const collisions = findCollisions(tasks);
+    if (collisions.length > 0) {
+      const detail = collisions
+        .map((c) => `  ${c.objectKey} <- ${c.sources.join(', ')}`)
+        .join('\n');
+      throw new Error(
+        'Multiple files map to the same object key and would overwrite each other. ' +
+          'Set "flatten: false" to preserve directory structure, or adjust the sources.\n' +
+          detail
+      );
     }
 
-    // Process all sources and collect results
+    // Check if bucket exists, create if not
+    await ensureBucket(minioClient, bucket, region, core.info);
+
     const allResults = [];
-    
-    for (const source of sources) {
-      core.info(`Processing source: ${source}`);
-      
-      // Use glob to expand patterns
-      const globber = await glob.create(source, {
-        followSymbolicLinks: false
-      });
-      
-      const matchedFiles = await globber.glob();
-      
-      if (matchedFiles.length === 0) {
-        throw new Error(`Source path does not exist or no files match pattern: ${source}`);
-      }
-      
-      core.info(`Found ${matchedFiles.length} file(s) matching pattern`);
-
-      for (const matchedPath of matchedFiles) {
-        const stats = fs.statSync(matchedPath);
-
-        if (stats.isFile()) {
-          // Upload single file
-          const targetPath = target 
-            ? `${target}/${path.basename(matchedPath)}`.replace(/\/+/g, '/')
-            : path.basename(matchedPath);
-          const result = await uploadFile(minioClient, bucket, matchedPath, targetPath);
-          allResults.push(result);
-          
-          core.info(`✓ Successfully uploaded to ${result.path}`);
-        } else if (stats.isDirectory()) {
-          // Upload directory
-          const results = await uploadDirectory(minioClient, bucket, matchedPath, target);
-          allResults.push(...results);
-          
-          core.info(`✓ Successfully uploaded ${results.length} files from ${matchedPath}`);
-        }
-      }
+    for (const task of tasks) {
+      const result = await uploadFile(minioClient, bucket, task.localPath, task.objectKey, core.info);
+      allResults.push(result);
+      core.info(`✓ Successfully uploaded to ${result.path}`);
     }
 
     // Set outputs
     core.setOutput('uploads', JSON.stringify(allResults));
     core.setOutput('uploaded-count', allResults.length);
-    core.setOutput('uploaded-paths', allResults.map(r => r.path).join('\n'));
-    
-    core.info(`\n🎉 Total: ${allResults.length} file(s) uploaded successfully`);
+    core.setOutput('uploaded-paths', allResults.map((r) => r.path).join('\n'));
 
+    core.info(`\n🎉 Total: ${allResults.length} file(s) uploaded successfully`);
   } catch (error) {
     core.setFailed(`Action failed: ${error.message}`);
   }
