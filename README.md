@@ -1,13 +1,16 @@
 # MinIO Upload Action
 
-A platform-agnostic GitHub Action for uploading artifacts to MinIO object storage.
+A platform-agnostic GitHub Action for uploading artifacts to MinIO and other
+S3-compatible object storage (Cloudflare R2, Backblaze B2, DigitalOcean Spaces,
+Wasabi, AWS S3, ...).
 
 ## Features
 
 - ✅ Platform agnostic (works on Linux, macOS, and Windows runners)
+- ✅ Works with any S3-compatible backend, not just MinIO
 - ✅ Upload single files or entire directories
-- ✅ **Multiple sources support** - upload multiple files/directories in one action
-- ✅ **Glob pattern support** - use wildcards like `*.jar` or `**/*.js`
+- ✅ **Multiple sources support** — upload multiple files/directories in one action
+- ✅ **Glob pattern support** — use wildcards like `*.jar` or `**/*.js`
 - ✅ Automatic bucket creation if it doesn't exist
 - ✅ SSL/TLS support
 - ✅ Custom target paths
@@ -19,20 +22,21 @@ A platform-agnostic GitHub Action for uploading artifacts to MinIO object storag
 
 ```yaml
 - name: Upload to MinIO
-  uses: redfoxrr/minio-upload-action@v2
+  uses: vulzen/minio-upload-action@v2
   with:
     endpoint: 'play.min.io:9000'
     access-key: ${{ secrets.MINIO_ACCESS_KEY }}
     secret-key: ${{ secrets.MINIO_SECRET_KEY }}
     bucket: 'my-bucket'
     source: './build/artifact.zip'
+    use-ssl: 'true' # default
 ```
 
 ### Upload Multiple Sources
 
 ```yaml
 - name: Upload multiple files
-  uses: redfoxrr/minio-upload-action@v2
+  uses: vulzen/minio-upload-action@v2
   with:
     endpoint: 'play.min.io:9000'
     access-key: ${{ secrets.MINIO_ACCESS_KEY }}
@@ -49,7 +53,7 @@ A platform-agnostic GitHub Action for uploading artifacts to MinIO object storag
 
 ```yaml
 - name: Upload JAR files
-  uses: redfoxrr/minio-upload-action@v2
+  uses: vulzen/minio-upload-action@v2
   with:
     endpoint: 'minio.example.com'
     access-key: ${{ secrets.MINIO_ACCESS_KEY }}
@@ -66,7 +70,7 @@ A platform-agnostic GitHub Action for uploading artifacts to MinIO object storag
 
 ```yaml
 - name: Upload build directory
-  uses: redfoxrr/minio-upload-action@v2
+  uses: vulzen/minio-upload-action@v2
   with:
     endpoint: 'minio.example.com'
     access-key: ${{ secrets.MINIO_ACCESS_KEY }}
@@ -74,7 +78,7 @@ A platform-agnostic GitHub Action for uploading artifacts to MinIO object storag
     bucket: 'artifacts'
     source: './dist'
     target: 'releases/${{ github.sha }}'
-    use-ssl: 'true'
+    use-ssl: 'true' # default
 ```
 
 ### Full Example Workflow
@@ -100,7 +104,7 @@ jobs:
     
     - name: Upload to MinIO
       id: upload
-      uses: redfoxrr/minio-upload-action@v2
+      uses: vulzen/minio-upload-action@v2
       with:
         endpoint: ${{ secrets.MINIO_ENDPOINT }}
         access-key: ${{ secrets.MINIO_ACCESS_KEY }}
@@ -116,18 +120,50 @@ jobs:
         echo "${{ steps.upload.outputs.uploaded-paths }}"
 ```
 
+## Other S3-Compatible Providers
+
+This action talks to the storage backend over the S3 API, so it also works with
+other S3-compatible providers such as Cloudflare R2, Backblaze B2, DigitalOcean
+Spaces, Wasabi, and AWS S3. Point `endpoint` at the provider's S3 endpoint, keep
+`use-ssl: 'true'`, and supply the provider's S3 access key / secret key.
+
+### Cloudflare R2
+
+```yaml
+- name: Upload to R2
+  uses: vulzen/minio-upload-action@v2
+  with:
+    endpoint: '<ACCOUNT_ID>.r2.cloudflarestorage.com'
+    access-key: ${{ secrets.R2_ACCESS_KEY_ID }}
+    secret-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+    bucket: 'my-bucket'
+    source: './dist'
+    target: 'releases/${{ github.sha }}'
+    use-ssl: 'true' # default
+    region: 'auto' # R2's region; the default 'us-east-1' also works
+```
+
+Notes for R2:
+
+- Use the R2 endpoint `<ACCOUNT_ID>.r2.cloudflarestorage.com` with no port (HTTPS on 443).
+- Create R2 **API tokens** (Access Key ID + Secret Access Key) from the R2 dashboard — not your Cloudflare global API key.
+- `region: 'auto'` is R2's canonical region. The default `us-east-1` also works because R2 is lenient about the signing region.
+- The action auto-creates the bucket if it's missing. R2 supports this, but the API token needs admin/edit permission to create buckets — a read/write-only token will fail on creation. Pre-create the bucket in the R2 dashboard to avoid this.
+
+> **Note:** `region: 'auto'` works for R2 but **not** for a stock MinIO server, which validates the signing region and expects `us-east-1` by default. The `us-east-1` default is the value that works across both MinIO and R2.
+
 ## Inputs
 
 | Input | Description | Required | Default |
 |-------|-------------|----------|---------|
-| `endpoint` | MinIO endpoint URL (e.g., `play.min.io:9000`) | Yes | - |
-| `access-key` | MinIO access key | Yes | - |
-| `secret-key` | MinIO secret key | Yes | - |
+| `endpoint` | S3 endpoint URL (e.g., `play.min.io:9000`). Protocol is optional; port defaults to 443 with SSL, 9000 without. | Yes | - |
+| `access-key` | Access key | Yes | - |
+| `secret-key` | Secret key | Yes | - |
 | `bucket` | Target bucket name | Yes | - |
 | `source` | Source file(s) or directory path(s) to upload. Supports multiple sources using YAML multiline syntax (one path per line). Supports glob patterns. | Yes | - |
 | `target` | Target path prefix in bucket where all sources will be uploaded | No | `''` |
 | `use-ssl` | Use SSL/TLS for connection | No | `true` |
-| `region` | MinIO region | No | `us-east-1` |
+| `region` | Region used for request signing. Keep `us-east-1` for MinIO; R2 also accepts `auto`. | No | `us-east-1` |
 
 ## Outputs
 
@@ -142,7 +178,7 @@ jobs:
 ```yaml
 - name: Upload files
   id: upload
-  uses: redfoxrr/minio-upload-action@v2
+  uses: vulzen/minio-upload-action@v2
   with:
     endpoint: ${{ secrets.MINIO_ENDPOINT }}
     access-key: ${{ secrets.MINIO_ACCESS_KEY }}
