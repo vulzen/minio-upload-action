@@ -12,6 +12,9 @@ Wasabi, AWS S3, ...).
 - **Multiple sources support** — upload multiple files/directories in one action
 - **Glob pattern support** — use wildcards like `*.jar` or `**/*.js`
 - Automatic bucket creation if it doesn't exist
+- Preserves directory structure by default (or flatten to basenames)
+- Infers `Content-Type` from file extensions
+- Fails fast on object-key collisions instead of silently overwriting
 - SSL/TLS support
 - Custom target paths
 - Detailed outputs with all uploaded files, paths, and counts
@@ -162,8 +165,11 @@ Notes for R2:
 | `bucket` | Target bucket name | Yes | - |
 | `source` | Source file(s) or directory path(s) to upload. Supports multiple sources using YAML multiline syntax (one path per line). Supports glob patterns. | Yes | - |
 | `target` | Target path prefix in bucket where all sources will be uploaded | No | `''` |
-| `use-ssl` | Use SSL/TLS for connection | No | `true` |
+| `use-ssl` | Use SSL/TLS for connection. Ignored when `endpoint` includes an `http://`/`https://` prefix (the prefix wins). | No | `true` |
+| `flatten` | Upload every matched file to `target/<basename>` instead of preserving its directory structure relative to the source. | No | `false` |
 | `region` | Region used for request signing. Keep `us-east-1` for MinIO; R2 also accepts `auto`. | No | `us-east-1` |
+
+> **Object keys & collisions:** By default the directory structure of each source is preserved under `target` (e.g. `dist/sub/app.js` → `target/sub/app.js`). Set `flatten: 'true'` to drop the structure and key every file by its basename. In either mode, if two matched files would map to the same object key the action fails before uploading anything, rather than silently overwriting. `Content-Type` is inferred from each file's extension.
 
 ## Outputs
 
@@ -221,6 +227,16 @@ npm run build
 ```
 
 This compiles the action using `@vercel/ncc` and outputs to `dist/index.js`.
+The committed `dist/` bundle is what actually runs, so rebuild and commit it
+whenever you change anything under `src/`. CI fails if `dist/` is out of date.
+
+### Test
+
+```bash
+npm test
+```
+
+Unit tests (Jest) cover the pure logic in `src/keys.js` and `src/inputs.js`.
 
 ### Testing Locally
 
