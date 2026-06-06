@@ -6,15 +6,15 @@ Wasabi, AWS S3, ...).
 
 ## Features
 
-- ✅ Platform agnostic (works on Linux, macOS, and Windows runners)
-- ✅ Works with any S3-compatible backend, not just MinIO
-- ✅ Upload single files or entire directories
-- ✅ **Multiple sources support** — upload multiple files/directories in one action
-- ✅ **Glob pattern support** — use wildcards like `*.jar` or `**/*.js`
-- ✅ Automatic bucket creation if it doesn't exist
-- ✅ SSL/TLS support
-- ✅ Custom target paths
-- ✅ Detailed outputs with all uploaded files, paths, and counts
+- Platform agnostic (works on Linux, macOS, and Windows runners)
+- Works with any S3-compatible backend, not just MinIO
+- Upload single files or entire directories
+- **Multiple sources support** — upload multiple files/directories in one action
+- **Glob pattern support** — use wildcards like `*.jar` or `**/*.js`
+- Automatic bucket creation if it doesn't exist
+- SSL/TLS support
+- Custom target paths
+- Detailed outputs with all uploaded files, paths, and counts
 
 ## Usage
 
