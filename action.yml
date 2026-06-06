@@ -1,6 +1,6 @@
 name: 'Upload to MinIO'
 description: 'Upload artifacts to MinIO object storage'
-author: 'redfox'
+author: 'vulzen'
 
 inputs:
   endpoint:
