@@ -18,9 +18,18 @@ jobs:
         node-version: '20'
     - name: Install dependencies
       run: npm ci
+    - name: Test
+      run: npm test
     - name: Build
       run: npm run build
-    
+    - name: Verify dist is up to date
+      run: |
+        if ! git diff --exit-code --quiet dist/; then
+          echo "::error::dist/ is out of date. Run 'npm run build' and commit the result."
+          git diff --stat dist/
+          exit 1
+        fi
+
   release:
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
