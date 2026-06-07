@@ -16,7 +16,7 @@ jobs:
     - name: Install dependencies
       run: bun install --frozen-lockfile
     - name: Test
-      run: bun run test
+      run: bun test
     - name: Build
       run: bunx ncc build src/index.js -o dist --source-map --license licenses.txt
     - name: Verify dist is up to date
