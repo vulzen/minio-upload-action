@@ -233,10 +233,10 @@ whenever you change anything under `src/`. CI fails if `dist/` is out of date.
 ### Test
 
 ```bash
-bun run test
+bun test
 ```
 
-Unit tests (Jest) cover the pure logic in `src/keys.js` and `src/inputs.js`.
+Unit tests (`bun test`) cover the pure logic in `src/keys.js` and `src/inputs.js`.
 
 ### Testing Locally
 
