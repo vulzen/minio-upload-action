@@ -25,7 +25,7 @@ Wasabi, AWS S3, ...).
 
 ```yaml
 - name: Upload to MinIO
-  uses: vulzen/minio-upload-action@v2
+  uses: vulzen/minio-upload-action@v3
   with:
     endpoint: 'play.min.io:9000'
     access-key: ${{ secrets.MINIO_ACCESS_KEY }}
@@ -39,7 +39,7 @@ Wasabi, AWS S3, ...).
 
 ```yaml
 - name: Upload multiple files
-  uses: vulzen/minio-upload-action@v2
+  uses: vulzen/minio-upload-action@v3
   with:
     endpoint: 'play.min.io:9000'
     access-key: ${{ secrets.MINIO_ACCESS_KEY }}
@@ -56,7 +56,7 @@ Wasabi, AWS S3, ...).
 
 ```yaml
 - name: Upload JAR files
-  uses: vulzen/minio-upload-action@v2
+  uses: vulzen/minio-upload-action@v3
   with:
     endpoint: 'minio.example.com'
     access-key: ${{ secrets.MINIO_ACCESS_KEY }}
@@ -73,7 +73,7 @@ Wasabi, AWS S3, ...).
 
 ```yaml
 - name: Upload build directory
-  uses: vulzen/minio-upload-action@v2
+  uses: vulzen/minio-upload-action@v3
   with:
     endpoint: 'minio.example.com'
     access-key: ${{ secrets.MINIO_ACCESS_KEY }}
@@ -107,7 +107,7 @@ jobs:
     
     - name: Upload to MinIO
       id: upload
-      uses: vulzen/minio-upload-action@v2
+      uses: vulzen/minio-upload-action@v3
       with:
         endpoint: ${{ secrets.MINIO_ENDPOINT }}
         access-key: ${{ secrets.MINIO_ACCESS_KEY }}
@@ -134,7 +134,7 @@ Spaces, Wasabi, and AWS S3. Point `endpoint` at the provider's S3 endpoint, keep
 
 ```yaml
 - name: Upload to R2
-  uses: vulzen/minio-upload-action@v2
+  uses: vulzen/minio-upload-action@v3
   with:
     endpoint: '<ACCOUNT_ID>.r2.cloudflarestorage.com'
     access-key: ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -184,7 +184,7 @@ Notes for R2:
 ```yaml
 - name: Upload files
   id: upload
-  uses: vulzen/minio-upload-action@v2
+  uses: vulzen/minio-upload-action@v3
   with:
     endpoint: ${{ secrets.MINIO_ENDPOINT }}
     access-key: ${{ secrets.MINIO_ACCESS_KEY }}
