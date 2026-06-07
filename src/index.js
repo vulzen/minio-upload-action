@@ -16,8 +16,9 @@ async function run() {
     const target = core.getInput('target') || '';
     const region = core.getInput('region') || 'us-east-1';
     // use-ssl defaults to true; flatten defaults to false (preserve structure).
-    const useSSLInput = core.getInput('use-ssl') !== 'false';
-    const flatten = core.getInput('flatten') === 'true';
+    // getBooleanInput accepts the full YAML 1.2 boolean set and rejects garbage.
+    const useSSLInput = core.getBooleanInput('use-ssl');
+    const flatten = core.getBooleanInput('flatten');
 
     const sources = parseSources(sourceInput);
     if (sources.length === 0) {
