@@ -10,16 +10,18 @@ async function ensureBucket(minioClient, bucket, region, log) {
   }
 }
 
-// Upload a single local file to bucket/objectKey, inferring its Content-Type
-// from the file extension. Returns { etag, path }.
-async function uploadFile(minioClient, bucket, localPath, objectKey, log) {
-  const stats = fs.statSync(localPath);
+// Upload a single planned task ({ localPath, objectKey, size }) to
+// bucket/objectKey, inferring its Content-Type from the file extension. The
+// size is taken from the plan phase to avoid re-statting the file.
+// Returns { etag, path }.
+async function uploadFile(minioClient, bucket, task, log) {
+  const { localPath, objectKey, size } = task;
   const stream = fs.createReadStream(localPath);
   const contentType = mime.lookup(localPath) || 'application/octet-stream';
 
-  log(`Uploading ${localPath} -> ${bucket}/${objectKey} (${stats.size} bytes, ${contentType})`);
+  log(`Uploading ${localPath} -> ${bucket}/${objectKey} (${size} bytes, ${contentType})`);
 
-  const result = await minioClient.putObject(bucket, objectKey, stream, stats.size, {
+  const result = await minioClient.putObject(bucket, objectKey, stream, size, {
     'Content-Type': contentType,
   });
 

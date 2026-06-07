@@ -35,12 +35,14 @@ async function planUploads(sources, target, flatten, log) {
 
     let fileCount = 0;
     for (const match of matches) {
-      if (!fs.statSync(match).isFile()) {
+      const stats = fs.statSync(match);
+      if (!stats.isFile()) {
         continue;
       }
       tasks.push({
         localPath: match,
         objectKey: computeObjectKey(match, base, target, flatten),
+        size: stats.size,
       });
       fileCount++;
     }

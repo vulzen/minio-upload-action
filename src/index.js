@@ -5,7 +5,29 @@ const { planUploads } = require('./plan');
 const { findCollisions } = require('./keys');
 const { ensureBucket, uploadFile } = require('./upload');
 
+// Number of files to upload concurrently.
+const CONCURRENCY = 5;
+
+// Upload every task with bounded concurrency, pushing each success onto
+// `results` as it completes so the caller can report partial progress if a
+// later upload fails.
+async function uploadAll(minioClient, bucket, tasks, results) {
+  let next = 0;
+  async function worker() {
+    while (next < tasks.length) {
+      const task = tasks[next++];
+      const result = await uploadFile(minioClient, bucket, task, core.info);
+      results.push(result);
+      core.info(`✓ Successfully uploaded to ${result.path}`);
+    }
+  }
+  const workers = Array.from({ length: Math.min(CONCURRENCY, tasks.length) }, worker);
+  await Promise.all(workers);
+}
+
 async function run() {
+  // Populated as uploads succeed; reported even on partial failure (see finally).
+  const allResults = [];
   try {
     // Get inputs
     const endpoint = core.getInput('endpoint', { required: true });
@@ -40,7 +62,9 @@ async function run() {
     });
 
     // Plan all uploads before touching the bucket, so a missing source or a
-    // key collision fails fast without leaving a half-written bucket behind.
+    // key collision fails before anything is uploaded. The upload phase itself
+    // is not transactional: if a file fails mid-run, files already uploaded
+    // stay in the bucket and are reported via the outputs below.
     const tasks = await planUploads(sources, target, flatten, core.info);
 
     const collisions = findCollisions(tasks);
@@ -58,21 +82,16 @@ async function run() {
     // Check if bucket exists, create if not
     await ensureBucket(minioClient, bucket, region, core.info);
 
-    const allResults = [];
-    for (const task of tasks) {
-      const result = await uploadFile(minioClient, bucket, task.localPath, task.objectKey, core.info);
-      allResults.push(result);
-      core.info(`✓ Successfully uploaded to ${result.path}`);
-    }
-
-    // Set outputs
-    core.setOutput('uploads', JSON.stringify(allResults));
-    core.setOutput('uploaded-count', allResults.length);
-    core.setOutput('uploaded-paths', allResults.map((r) => r.path).join('\n'));
+    await uploadAll(minioClient, bucket, tasks, allResults);
 
     core.info(`\n🎉 Total: ${allResults.length} file(s) uploaded successfully`);
   } catch (error) {
     core.setFailed(`Action failed: ${error.message}`);
+  } finally {
+    // Report whatever was uploaded, even on partial failure.
+    core.setOutput('uploads', JSON.stringify(allResults));
+    core.setOutput('uploaded-count', allResults.length);
+    core.setOutput('uploaded-paths', allResults.map((r) => r.path).join('\n'));
   }
 }
 
