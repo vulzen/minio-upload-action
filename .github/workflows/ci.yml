@@ -11,20 +11,18 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v6
-    - name: Setup Node.js
-      uses: actions/setup-node@v6
-      with:
-        node-version: '24'
+    - name: Setup Bun
+      uses: oven-sh/setup-bun@v2
     - name: Install dependencies
-      run: npm ci
+      run: bun install --frozen-lockfile
     - name: Test
-      run: npm test
+      run: bun run test
     - name: Build
-      run: npm run build
+      run: bunx ncc build src/index.js -o dist --source-map --license licenses.txt
     - name: Verify dist is up to date
       run: |
         if ! git diff --exit-code --quiet dist/; then
-          echo "::error::dist/ is out of date. Run 'npm run build' and commit the result."
+          echo "::error::dist/ is out of date. Run 'bun run build' and commit the result."
           git diff --stat dist/
           exit 1
         fi
