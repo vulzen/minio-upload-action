@@ -217,13 +217,13 @@ Store your MinIO credentials as GitHub secrets:
 ### Setup
 
 ```bash
-npm install
+bun install
 ```
 
 ### Build
 
 ```bash
-npm run build
+bun run build
 ```
 
 This compiles the action using `@vercel/ncc` and outputs to `dist/index.js`.
@@ -233,7 +233,7 @@ whenever you change anything under `src/`. CI fails if `dist/` is out of date.
 ### Test
 
 ```bash
-npm test
+bun run test
 ```
 
 Unit tests (Jest) cover the pure logic in `src/keys.js` and `src/inputs.js`.
